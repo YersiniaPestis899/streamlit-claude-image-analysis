@@ -27,38 +27,32 @@ def get_aws_keys():
         st.session_state.aws_default_region = aws_default_region
         st.session_state.aws_credentials_saved = True
         st.sidebar.success("AWSキーが保存されました！")
-        st.rerun()  # ここを変更
+        st.rerun()
 
     return aws_access_key_id, aws_secret_access_key, aws_default_region
 
-# AWSキーの取得
-aws_access_key_id, aws_secret_access_key, aws_default_region = get_aws_keys()
-
 # Bedrockクライアントの設定
 @st.cache_resource
-def get_bedrock_client():
-    if not aws_access_key_id or not aws_secret_access_key or not aws_default_region:
+def get_bedrock_client(_aws_access_key_id, _aws_secret_access_key, _aws_default_region):
+    if not _aws_access_key_id or not _aws_secret_access_key or not _aws_default_region:
         return None
     try:
-        return boto3.client(
+        client = boto3.client(
             service_name='bedrock-runtime',
-            region_name=aws_default_region,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key
+            region_name=_aws_default_region,
+            aws_access_key_id=_aws_access_key_id,
+            aws_secret_access_key=_aws_secret_access_key
         )
+        return client
     except Exception as e:
         st.error(f"AWS Bedrockクライアントの初期化に失敗しました: {str(e)}")
         return None
 
-bedrock = get_bedrock_client()
-
-# encode_image関数とanalyze_image関数は変更なし
-
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
 
-def analyze_image(image, prompt):
-    if not bedrock:
+def analyze_image(image, prompt, bedrock_client):
+    if not bedrock_client:
         st.error("AWS Bedrockクライアントが初期化されていません。")
         return None
     
@@ -89,7 +83,7 @@ def analyze_image(image, prompt):
             ]
         }
 
-        response = bedrock.invoke_model(
+        response = bedrock_client.invoke_model(
             body=json.dumps(body),
             modelId="anthropic.claude-3-5-sonnet-20240620-v1:0",
             contentType="application/json",
@@ -104,10 +98,21 @@ def analyze_image(image, prompt):
 
 st.title("AWS Bedrock Claude 3.5 Sonnet 画像解析アプリ")
 
-# AWS認証情報が保存されていない場合にのみエラーメッセージを表示
-if not st.session_state.aws_credentials_saved:
-    st.error("AWS認証情報を入力してください。")
+# AWSキーの取得
+aws_access_key_id, aws_secret_access_key, aws_default_region = get_aws_keys()
+
+# AWS認証情報が保存されている場合のみBedrockクライアントを初期化
+if st.session_state.aws_credentials_saved:
+    bedrock = get_bedrock_client(aws_access_key_id, aws_secret_access_key, aws_default_region)
+    if bedrock:
+        st.success("AWS Bedrockクライアントが正常に初期化されました。")
+    else:
+        st.error("AWS Bedrockクライアントの初期化に失敗しました。認証情報を確認してください。")
 else:
+    st.warning("AWS認証情報を入力し、保存してください。")
+    bedrock = None
+
+if bedrock:
     uploaded_file = st.file_uploader("画像をアップロードしてください", type=["png", "jpg", "jpeg"])
 
     if uploaded_file is not None:
@@ -118,14 +123,14 @@ else:
             analysis_button = st.button("画像を解析")
             if analysis_button:
                 with st.spinner("画像を解析中..."):
-                    result = analyze_image(uploaded_file, "この画像を詳細に説明してください。")
+                    result = analyze_image(uploaded_file, "この画像を詳細に説明してください。", bedrock)
                 if result:
                     st.write(result)
 
             question = st.text_input("画像について質問してください")
             if st.button("質問する") and question:
                 with st.spinner("回答を生成中..."):
-                    answer = analyze_image(uploaded_file, question)
+                    answer = analyze_image(uploaded_file, question, bedrock)
                 if answer:
                     st.write(answer)
         except Exception as e:
