@@ -7,6 +7,8 @@ import io
 
 # AWSキー入力と保存のための関数
 def get_aws_keys():
+    if 'aws_credentials_saved' not in st.session_state:
+        st.session_state.aws_credentials_saved = False
     if 'aws_access_key_id' not in st.session_state:
         st.session_state.aws_access_key_id = ''
     if 'aws_secret_access_key' not in st.session_state:
@@ -23,7 +25,9 @@ def get_aws_keys():
         st.session_state.aws_access_key_id = aws_access_key_id
         st.session_state.aws_secret_access_key = aws_secret_access_key
         st.session_state.aws_default_region = aws_default_region
+        st.session_state.aws_credentials_saved = True
         st.sidebar.success("AWSキーが保存されました！")
+        st.rerun()  # ここを変更
 
     return aws_access_key_id, aws_secret_access_key, aws_default_region
 
@@ -34,7 +38,6 @@ aws_access_key_id, aws_secret_access_key, aws_default_region = get_aws_keys()
 @st.cache_resource
 def get_bedrock_client():
     if not aws_access_key_id or not aws_secret_access_key or not aws_default_region:
-        st.error("AWS認証情報を入力してください。")
         return None
     try:
         return boto3.client(
@@ -48,6 +51,8 @@ def get_bedrock_client():
         return None
 
 bedrock = get_bedrock_client()
+
+# encode_image関数とanalyze_image関数は変更なし
 
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode('utf-8')
@@ -99,25 +104,29 @@ def analyze_image(image, prompt):
 
 st.title("AWS Bedrock Claude 3.5 Sonnet 画像解析アプリ")
 
-uploaded_file = st.file_uploader("画像をアップロードしてください", type=["png", "jpg", "jpeg"])
+# AWS認証情報が保存されていない場合にのみエラーメッセージを表示
+if not st.session_state.aws_credentials_saved:
+    st.error("AWS認証情報を入力してください。")
+else:
+    uploaded_file = st.file_uploader("画像をアップロードしてください", type=["png", "jpg", "jpeg"])
 
-if uploaded_file is not None:
-    try:
-        image = Image.open(uploaded_file)
-        st.image(image, caption='アップロードされた画像', use_column_width=True)
+    if uploaded_file is not None:
+        try:
+            image = Image.open(uploaded_file)
+            st.image(image, caption='アップロードされた画像', use_column_width=True)
 
-        analysis_button = st.button("画像を解析")
-        if analysis_button:
-            with st.spinner("画像を解析中..."):
-                result = analyze_image(uploaded_file, "この画像を詳細に説明してください。")
-            if result:
-                st.write(result)
+            analysis_button = st.button("画像を解析")
+            if analysis_button:
+                with st.spinner("画像を解析中..."):
+                    result = analyze_image(uploaded_file, "この画像を詳細に説明してください。")
+                if result:
+                    st.write(result)
 
-        question = st.text_input("画像について質問してください")
-        if st.button("質問する") and question:
-            with st.spinner("回答を生成中..."):
-                answer = analyze_image(uploaded_file, question)
-            if answer:
-                st.write(answer)
-    except Exception as e:
-        st.error(f"画像処理中にエラーが発生しました: {str(e)}")
+            question = st.text_input("画像について質問してください")
+            if st.button("質問する") and question:
+                with st.spinner("回答を生成中..."):
+                    answer = analyze_image(uploaded_file, question)
+                if answer:
+                    st.write(answer)
+        except Exception as e:
+            st.error(f"画像処理中にエラーが発生しました: {str(e)}")
